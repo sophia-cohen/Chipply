@@ -19,15 +19,16 @@ def _get_secret(key: str) -> str:
 
 
 DATABASE_URL = _get_secret("DATABASE_URL")
+AFFINITY_DATABASE_URL = _get_secret("AFFINITY_DATABASE_URL")
 
 
-def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+def get_connection(db="main"):
+    url = AFFINITY_DATABASE_URL if db == "affinity" else DATABASE_URL
+    return psycopg2.connect(url)
 
 
-def get_schema() -> str:
-    """Introspect the database and return a detailed schema description."""
-    conn = get_connection()
+def _introspect_db(conn) -> tuple[list, dict, dict, dict, dict]:
+    """Introspect a single database connection and return raw schema info."""
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Get all tables and their columns
@@ -120,8 +121,12 @@ def get_schema() -> str:
     cur.close()
     conn.close()
 
-    # Build schema description
-    lines = ["# Database Schema\n"]
+    return columns, pks, fks, row_counts, sample_data
+
+
+def _format_schema(label: str, columns, pks, fks, row_counts, sample_data) -> list[str]:
+    """Format introspected schema info into readable lines."""
+    lines = [f"\n# {label}\n"]
     current_table = None
 
     for col in columns:
@@ -164,12 +169,32 @@ def get_schema() -> str:
                 vals = [str(v)[:50] if v is not None else "NULL" for v in row.values()]
                 lines.append("  " + " | ".join(vals))
 
+    return lines
+
+
+def get_schema() -> str:
+    """Introspect both databases and return a combined schema description."""
+    lines = []
+
+    conn_main = get_connection("main")
+    main_info = _introspect_db(conn_main)
+    lines.extend(_format_schema("Main Database", *main_info))
+
+    if AFFINITY_DATABASE_URL:
+        conn_affinity = get_connection("affinity")
+        affinity_info = _introspect_db(conn_affinity)
+        lines.extend(_format_schema("Affinity Interactions Database", *affinity_info))
+        lines.append("\n# Cross-Database Relationships")
+        lines.append("The Main Database contains an 'Affinity' table that maps entities to their Affinity IDs.")
+        lines.append("Use these IDs to join with tables in the Affinity Interactions Database.")
+        lines.append("To query across both databases, use run_sql with db='main' or db='affinity' as needed.")
+
     return "\n".join(lines)
 
 
-def run_query(sql: str) -> tuple[list[dict], list[str]]:
+def run_query(sql: str, db: str = "main") -> tuple[list[dict], list[str]]:
     """Execute a read-only SQL query and return (rows, column_names)."""
-    conn = get_connection()
+    conn = get_connection(db)
     conn.set_session(readonly=True, autocommit=True)
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:

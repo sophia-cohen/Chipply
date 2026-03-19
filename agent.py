@@ -6,8 +6,22 @@ from exa_py import Exa
 from db import get_schema, run_query, _get_secret
 from openalex import search_authors, get_author, get_author_works, search_works, search_topics
 
-client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
-exa = Exa(_get_secret("EXA_API_KEY"))
+client = None
+exa = None
+
+
+def _get_client():
+    global client
+    if client is None:
+        client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
+    return client
+
+
+def _get_exa():
+    global exa
+    if exa is None:
+        exa = Exa(_get_secret("EXA_API_KEY"))
+    return exa
 MODEL = "claude-sonnet-4-6"
 MAX_TOOL_TURNS = 10
 
@@ -242,7 +256,7 @@ def _handle_web_search(tool_use) -> dict:
     query = tool_use.input.get("query", "")
     num_results = min(tool_use.input.get("num_results", 5), 10)
     try:
-        results = exa.search_and_contents(
+        results = _get_exa().search_and_contents(
             query,
             num_results=num_results,
             text={"max_characters": 3000},
@@ -267,7 +281,7 @@ def _handle_web_search(tool_use) -> dict:
 def _handle_get_page_contents(tool_use) -> dict:
     url = tool_use.input.get("url", "")
     try:
-        results = exa.get_contents([url], text={"max_characters": 10000})
+        results = _get_exa().get_contents([url], text={"max_characters": 10000})
         if results.results:
             text = results.results[0].text or ""
             return {"type": "tool_result", "tool_use_id": tool_use.id, "content": text[:10000]}
@@ -347,7 +361,7 @@ def create_agent(schema: str):
             turns += 1
 
             try:
-                response = client.messages.create(
+                response = _get_client().messages.create(
                     model=MODEL,
                     max_tokens=4096,
                     system=system,

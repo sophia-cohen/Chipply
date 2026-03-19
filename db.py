@@ -18,12 +18,11 @@ def _get_secret(key: str) -> str:
         return None
 
 
-DATABASE_URL = _get_secret("DATABASE_URL")
-AFFINITY_DATABASE_URL = _get_secret("AFFINITY_DATABASE_URL")
-
-
 def get_connection(db="main"):
-    url = AFFINITY_DATABASE_URL if db == "affinity" else DATABASE_URL
+    if db == "affinity":
+        url = _get_secret("AFFINITY_DATABASE_URL")
+    else:
+        url = _get_secret("DATABASE_URL")
     return psycopg2.connect(url)
 
 
@@ -180,7 +179,7 @@ def get_schema() -> str:
     main_info = _introspect_db(conn_main)
     lines.extend(_format_schema("Main Database", *main_info))
 
-    if AFFINITY_DATABASE_URL:
+    if _get_secret("AFFINITY_DATABASE_URL"):
         conn_affinity = get_connection("affinity")
         affinity_info = _introspect_db(conn_affinity)
         lines.extend(_format_schema("Affinity Interactions Database", *affinity_info))
